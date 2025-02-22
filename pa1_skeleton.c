@@ -139,6 +139,21 @@ void run_server() {
         exit(EXIT_FAILURE);
     }
 
+    // Create epoll instance
+    int server_epoll_fd = epoll_create1(0);
+    if (server_epoll_fd == -1) {
+        perror("Epoll creation failed");
+        exit(EXIT_FAILURE);
+    }
+    // Register the server socket to epoll in order to monitor incoming connections
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = server_socket;
+    if (epoll_ctl(server_epoll_fd, EPOLL_CTL_ADD, server_socket, &event) == -1) {
+        perror("Epoll_ctl failed");
+        exit(EXIT_FAILURE);
+    }
+
     /* Server's run-to-completion event loop */
     while (1) {
         /* TODO:
