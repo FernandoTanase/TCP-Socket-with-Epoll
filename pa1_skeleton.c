@@ -19,7 +19,7 @@
 /* 
 Please specify the group members here
 
-# Student #1: 
+# Student #1: Fernando C. Tanase Mosneagu
 # Student #2:
 # Student #3: 
 
