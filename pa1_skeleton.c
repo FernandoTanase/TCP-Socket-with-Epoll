@@ -24,7 +24,7 @@ Please specify the group members here
 # Student #3: 
 
 */
-
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -105,8 +105,8 @@ void run_client() {
      * Wait for client threads to complete and aggregate metrics of all client threads
      */
 
-    printf("Average RTT: %lld us\n", total_rtt / total_messages);
-    printf("Total Request Rate: %f messages/s\n", total_request_rate);
+    //printf("Average RTT: %lld us\n", total_rtt / total_messages);
+    //printf("Total Request Rate: %f messages/s\n", total_request_rate);
 }
 
 void run_server() {
@@ -115,6 +115,29 @@ void run_server() {
      * Server creates listening socket and epoll instance.
      * Server registers the listening socket to epoll
      */
+
+    // Create listening socket.
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket == -1) {
+        perror("Listening Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+    // Make socket non-blocking
+    fcntl(server_socket, F_SETFL, O_NONBLOCK);
+    //Bind the socket to the server address and port
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    server_addr.sin_addr.s_addr = inet_addr(server_ip);
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+    // Listen for incoming connections
+    if (listen(server_socket, DEFAULT_CLIENT_THREADS*2) == -1) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
 
     /* Server's run-to-completion event loop */
     while (1) {
