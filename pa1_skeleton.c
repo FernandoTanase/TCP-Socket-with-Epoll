@@ -20,7 +20,7 @@
 Please specify the group members here
 
 # Student #1: Fernando C. Tanase Mosneagu
-# Student #2:
+# Student #2: Cameron C. Lira
 # Student #3: 
 
 */
