@@ -110,131 +110,108 @@ void run_client() {
 }
 
 void run_server() {
-
-    /* TODO:
-     * Server creates listening socket and epoll instance.
-     * Server registers the listening socket to epoll
-     */
-
-    // Create listening socket.
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket == -1) {
-        perror("Listening Socket creation failed");
+        perror("Server socket creation failed");
         exit(EXIT_FAILURE);
     }
-    // Make socket non-blocking
+
+    int opt = 1;
+    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+        perror("Setsockopt failed");
+        exit(EXIT_FAILURE);
+    }
+
     fcntl(server_socket, F_SETFL, O_NONBLOCK);
-    //Bind the socket to the server address and port
+
     struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(server_port);
     server_addr.sin_addr.s_addr = inet_addr(server_ip);
-    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+    server_addr.sin_port = htons(server_port);
+
+    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         perror("Bind failed");
         exit(EXIT_FAILURE);
     }
-    // Listen for incoming connections
-    if (listen(server_socket, DEFAULT_CLIENT_THREADS*2) == -1) {
+
+    if (listen(server_socket, SOMAXCONN) == -1) {
         perror("Listen failed");
         exit(EXIT_FAILURE);
     }
 
-    // Create epoll instance
-    int server_epoll_fd = epoll_create1(0);
-    if (server_epoll_fd == -1) {
-        perror("Epoll creation failed");
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1) {
+        perror("Epoll create failed");
         exit(EXIT_FAILURE);
     }
-    // Register the server socket to epoll in order to monitor incoming connections
-    struct epoll_event event;
-    event.events = EPOLLIN;
-    event.data.fd = server_socket;
-    if (epoll_ctl(server_epoll_fd, EPOLL_CTL_ADD, server_socket, &event) == -1) {
+
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = server_socket;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &ev) == -1) {
         perror("Epoll_ctl failed");
         exit(EXIT_FAILURE);
     }
 
-    /* Server's run-to-completion event loop */
+    struct epoll_event events[MAX_EVENTS];
     while (1) {
-        /* TODO:
-         * Server uses epoll to handle connection establishment with clients
-         * or receive the message from clients and echo the message back
-         */
-        // 1. wait for new events
-        struct epoll_event events[MAX_EVENTS];
-        int num_events = epoll_wait(server_epoll_fd, events, MAX_EVENTS, -1);
-        if (num_events == -1) {
+        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        if (nfds == -1) {
             perror("Epoll wait failed");
             exit(EXIT_FAILURE);
         }
-        // Process each event
-        for (int i = 0; i < num_events; i++) {
-            // 2. If it's the listening socket, accept new connection
+
+        for (int i = 0; i < nfds; i++) {
             if (events[i].data.fd == server_socket) {
                 struct sockaddr_in client_addr;
                 socklen_t client_len = sizeof(client_addr);
-                int client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_len);
+                int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_len);
+                
                 if (client_socket == -1) {
-                    perror("Accept failed");
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        perror("Accept failed");
+                    }
                     continue;
                 }
-            
-                // Make the new client socket non-blocking
+
                 fcntl(client_socket, F_SETFL, O_NONBLOCK);
 
-                // 3. Add new client socket to epoll instance
                 struct epoll_event ev;
-                ev.events = EPOLLIN;
+                ev.events = EPOLLIN | EPOLLET;
                 ev.data.fd = client_socket;
-                if (epoll_ctl(server_epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
-                    perror("Failed to add client socket to epoll");
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
+                    perror("Epoll_ctl failed for client socket");
                     close(client_socket);
                     continue;
+                }
+            } else {
+                int client_socket = events[i].data.fd;
+                char buffer[MESSAGE_SIZE];
+                
+                ssize_t bytes_read = read(client_socket, buffer, MESSAGE_SIZE);
+                if (bytes_read == -1) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        close(client_socket);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                    }
+                    continue;
+                }
+                
+                if (bytes_read == 0) {
+                    close(client_socket);
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                    continue;
+                }
+
+                if (bytes_read == MESSAGE_SIZE) {
+                    ssize_t bytes_sent = write(client_socket, buffer, MESSAGE_SIZE);
+                    if (bytes_sent == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                        close(client_socket);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                    }
                 }
             }
-            // else handle data from an already existing client
-            else{
-                // Read message from client socket into buffer.
-                int client_socket = events[i].data.fd;
-                char data_read[MESSAGE_SIZE];
-                ssize_t bytes_read = read(client_socket, data_read, MESSAGE_SIZE);
-                if (bytes_read == -1) {
-                    perror("Failed to read data from client's socket");
-                    close(client_socket);
-                    epoll_ctl(server_epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
-                    continue;
-                } else if (bytes_read == 0) {
-                    // Connection closed by client
-                    close(client_socket);
-                    epoll_ctl(server_epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
-                    continue;
-                }
-                // Set epollout (so that we can echo the message)
-                struct epoll_event ev;
-                ev.events = EPOLLOUT;
-                ev.data.fd = client_socket;
-                if(epoll_ctl(server_epoll_fd, EPOLL_CTL_MOD, client_socket, &ev) == -1){
-                    perror("Failed to set epollout");
-                    close(client_socket);
-                    epoll_ctl(server_epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
-                    continue;
-                }
-                // Echo the message back.
-                if(write(client_socket, data_read, MESSAGE_SIZE) == -1){
-                    perror("Failed to echo message back to client");
-                    close(client_socket);
-                    epoll_ctl(server_epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
-                    continue;
-                }
-                // Set epoll back to epollin so that server is ready to read again.
-                ev.events = EPOLLIN;
-                if(epoll_ctl(server_epoll_fd, EPOLL_CTL_MOD, client_socket, &ev) == -1){
-                    perror("Failed to set epollin ");
-                    close(client_socket);
-                    epoll_ctl(server_epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
-                    continue;
-                }
-            } 
         }
     }
 }
