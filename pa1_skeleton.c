@@ -55,6 +55,16 @@ typedef struct {
     float request_rate;  /* Computed request rate (requests per second) based on RTT and total messages. */
 } client_thread_data_t;
 
+
+/*
+ * This function handles system errors, prints out the results from errno.
+ */
+void SystemErrorMessage(const char *msg)
+{
+	perror(msg);
+	exit(1);
+}
+
 /*
  * This function runs in a separate client thread to handle communication with the server
  */
@@ -65,21 +75,110 @@ void *client_thread_func(void *arg) {
     char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
 
+    // Conversion factor from microsends to seconds.
+    MICROSEC_TO_SEC = 1000000;
+    // Create timezone struct for use in gettimeofday();
+    struct timezone t_zone;
+    t_zone.tz_minuteswest = 0;
+    t_zone.tz_dsttime = 0;
+
+    int t_start = 0;
+    int t_end = 0;
+
     // Hint 1: register the "connected" client_thread's socket in the its epoll instance
     // Hint 2: use gettimeofday() and "struct timeval start, end" to record timestamp, which can be used to calculated RTT.
+
+    data.socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if ( data.socket_fd < 0 )
+	    SystemErrorMessage("failed to create socket().");
+
+    // Register socket with epoll instance.
+    if ( epoll_ctl(data.epoll_fd, EPOLL_CTL_ADD, data.socket_fd, EPOLLIN) < 0 )
+	    SystemErrorMessage("epoll_ctl() failure.");
+
+    // Create address
+    struct sockaddr_in s_addr;
+    memset(&s_addr, 0, sizeof(s_addr)); // Zero out.
+    s_addr.sin_family = AF_INET; // Set family.
+
+    // Convert address string to 32-bit binary
+    int r_val = inet_pton(AF_INET, *server_ip, &s_addr.sin_addr.s_addr);
+    if (r_val == 0)
+	    UserErrorMessage("inet_pton() failed"); // TODO: needs implementation.
+    else if (r_val < 0)
+	    SystemErrorMessage("inet_pton() failed.");
+
+    // Set server port.
+    //s_addr.sin_port = htons(server_port);
+    s_addr.sin_port = server_port;
 
     /* TODO:
      * It sends messages to the server, waits for a response using epoll,
      * and measures the round-trip time (RTT) of this request-response.
      */
- 
+    ssize_t bytes = 0;
+    ssize_t bytes_rcvd = 0;
+    int epoll = 0;
+
+    for (int i = 0; i < num_requests; i++)
+    {
+ 	// Get start time.
+    	t_start = gettimeofday(start, t_zone);
+
+	// Connect to server.
+	if (connect(data->socket_fd, (struct sockaddr *) &s_addr, sizeof(s_addr) < 0))
+		SystemErrorMessage("connect() failed.");
+
+	// Send to server.
+	bytes = send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
+	if (bytes < 0)
+		SystemErrorMessage("send() failed.");
+	else if (bytes != MESSAGE_SIZE)
+		UserErrorMessage("Failed to send message");
+
+	// Recieve from server.
+	while (bytes_rcvd < MESSAGE_SIZE)
+	{
+		// Use epoll to wait for return message.
+		epoll = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1); // TODO: may need to change timout from -1.
+		if (epoll < 0)
+			SystemErrorMessage("epoll_wait() failure");
+		// Read data from server.
+		bytes_rcvd = recv(data->socket_fd, recv_buf, MESSAGE_SIZE - 1, 0);
+		if (bytes_rcvd < 0)
+			SystemErrorMessage("recv() failure");
+		// Save the number of
+		bytes_rcvd += bytes_rcvd;
+	}
+
+	t_end = gettimeofday(end, t_zone);
+
+	data->total_rtt += (t_start - t_end);
+	if (bytes_rcvd == MESSAGE_SIZE)
+		data->total_messages++;
+	// Reset counters.
+	epoll = 0;
+	bytes = 0;
+	bytes_rcvd = 0;
+    }
+
+
+
     /* TODO:
-     * The function exits after sending and receiving a predefined number of messages (num_requests). 
+     * The function exits after sending and receiving a predefined number of messages (num_requests).
      * It calculates the request rate based on total messages and RTT
      */
+    // Calculate the request rate.
+    data->request_rate = ((data->total_messages * MICROSEC_TO_SEC) / data->total_rtt);
+
+    // Close socket and epoll file descriptors
+    close(data->socket_fd);
+    close(data->epoll_fd);
 
     return NULL;
 }
+
+
 
 /*
  * This function orchestrates multiple client threads to send requests to a server,
