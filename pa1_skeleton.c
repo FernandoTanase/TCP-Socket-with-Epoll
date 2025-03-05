@@ -21,7 +21,7 @@ Please specify the group members here
 
 # Student #1: Fernando C. Tanase Mosneagu
 # Student #2: Cameron C. Lira
-# Student #3: 
+# Student #3: Justin Elkins
 
 */
 #include <fcntl.h>
@@ -190,28 +190,88 @@ void *client_thread_func(void *arg) {
  * This function orchestrates multiple client threads to send requests to a server,
  * collect performance data of each threads, and compute aggregated metrics of all threads.
  */
-void run_client() {
+void run_client() 
+{
     pthread_t threads[num_client_threads];
     client_thread_data_t thread_data[num_client_threads];
     struct sockaddr_in server_addr;
 
-    /* TODO:
-     * Create sockets and epoll instances for client threads
-     * and connect these sockets of client threads to the server
-     */
-    
-    // Hint: use thread_data to save the created socket and epoll instance for each thread
-    // You will pass the thread_data to pthread_create() as below
-    for (int i = 0; i < num_client_threads; i++) {
+    // Initialize server address structure
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    inet_pton(AF_INET, server_ip, &server_addr.sin_addr);
+	
+    for (int i = 0; i < num_client_threads; i++) 
+    {
+	// Create a TCP socket
+        thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (thread_data[i].socket_fd < 0) 
+	{
+            perror("Socket creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Connect the socket to the server
+        if (connect(thread_data[i].socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) 
+	{
+            perror("Connection to server failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Create an epoll instance for the thread
+        thread_data[i].epoll_fd = epoll_create1(0);
+        if (thread_data[i].epoll_fd < 0) 
+	{
+            perror("Epoll creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Register the socket file descriptor with epoll for monitoring incoming data
+        struct epoll_event event;
+        event.events = EPOLLIN;
+        event.data.fd = thread_data[i].socket_fd;
+        if (epoll_ctl(thread_data[i].epoll_fd, EPOLL_CTL_ADD, thread_data[i].socket_fd, &event) < 0) 
+	{
+            perror("Epoll control failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Initialize thread statistics
+        thread_data[i].total_rtt = 0;
+        thread_data[i].total_messages = 0;
+
+        // Create a new thread for handling client communication
         pthread_create(&threads[i], NULL, client_thread_func, &thread_data[i]);
     }
 
-    /* TODO:
-     * Wait for client threads to complete and aggregate metrics of all client threads
-     */
+    long long total_rtt = 0;
+    long total_messages = 0;
+    float total_request_rate = 0.0;
 
-    //printf("Average RTT: %lld us\n", total_rtt / total_messages);
-    //printf("Total Request Rate: %f messages/s\n", total_request_rate);
+    for (int i = 0; i < num_client_threads; i++) 
+    {
+        // Wait for the client threads to finish
+        pthread_join(threads[i], NULL);
+        total_rtt += thread_data[i].total_rtt;
+        total_messages += thread_data[i].total_messages;
+        total_request_rate += thread_data[i].request_rate;
+
+        // Close the socket and epoll file descriptors
+        close(thread_data[i].socket_fd);
+        close(thread_data[i].epoll_fd);
+    }
+
+    // Print average RTT and total request rate statistics
+    if (total_messages > 0) 
+    {
+        printf("Average RTT: %lld us\n", total_rtt / total_messages);
+    } 
+    else 
+    {
+        printf("No messages were processed.\n");
+    }
+    printf("Total Request Rate: %f messages/s\n", total_request_rate);
 }
 
 void run_server() {
