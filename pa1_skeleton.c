@@ -106,7 +106,7 @@ void *client_thread_func(void *arg) {
 	    SystemErrorMessage("failed to create socket().");
 
     // Register socket with epoll instance.
-    if ( epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, EPOLLIN) < 0 )
+    if ( epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0 )
 	    SystemErrorMessage("epoll_ctl() failure.");
 
     // Create address
@@ -115,7 +115,7 @@ void *client_thread_func(void *arg) {
     s_addr.sin_family = AF_INET; // Set family.
 
     // Convert address string to 32-bit binary
-    int r_val = inet_pton(AF_INET, *server_ip, &s_addr.sin_addr.s_addr);
+    int r_val = inet_pton(AF_INET, server_ip, &s_addr.sin_addr.s_addr);
     if (r_val == 0)
 	    UserErrorMessage("inet_pton() failed", "invalid address string");
     else if (r_val < 0)
@@ -132,7 +132,7 @@ void *client_thread_func(void *arg) {
     for (int i = 0; i < num_requests; i++)
     {
  	// Get start time.
-    	t_start = gettimeofday(start, t_zone);
+    	t_start = gettimeofday(&start, &t_zone);
 
 	// Connect to server.
 	if (connect(data->socket_fd, (struct sockaddr *) &s_addr, sizeof(s_addr) < 0))
@@ -161,7 +161,7 @@ void *client_thread_func(void *arg) {
 	}
 
 	// Save end time.
-	t_end = gettimeofday(end, t_zone);
+	t_end = gettimeofday(&end, &t_zone);
 
 	// Accumulate RTT.
 	data->total_rtt += (t_start - t_end);
