@@ -180,8 +180,8 @@ void *client_thread_func(void *arg) {
     data->request_rate = ((data->total_messages * MICROSEC_TO_SEC) / data->total_rtt);
 
     // Close socket and epoll file descriptors
-    close(data->socket_fd);
-    close(data->epoll_fd);
+    // close(data->socket_fd);
+    // close(data->epoll_fd);
 
     return NULL;
 }
