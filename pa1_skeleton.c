@@ -34,6 +34,7 @@ Please specify the group members here
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <errno.h>
 
 #define MAX_EVENTS 64
 #define MESSAGE_SIZE 16
@@ -329,56 +330,73 @@ void run_server() {
 
         for (int i = 0; i < nfds; i++) {
             if (events[i].data.fd == server_socket) {
-                struct sockaddr_in client_addr;
-                socklen_t client_len = sizeof(client_addr);
-                int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_len);
-                
-                if (client_socket == -1) {
-                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        perror("Accept failed");
+                // Accept all pending connections
+                while (1) {
+                    struct sockaddr_in client_addr;
+                    socklen_t client_len = sizeof(client_addr);
+                    int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_len);
+                    
+                    if (client_socket == -1) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                            perror("Accept failed");
+                        }
+                        break;  // No more connections to accept
                     }
-                    continue;
-                }
 
-                fcntl(client_socket, F_SETFL, O_NONBLOCK);
+                    fcntl(client_socket, F_SETFL, O_NONBLOCK);
 
-                struct epoll_event ev;
-                ev.events = EPOLLIN | EPOLLET;
-                ev.data.fd = client_socket;
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
-                    perror("Epoll_ctl failed for client socket");
-                    close(client_socket);
-                    continue;
+                    struct epoll_event ev;
+                    ev.events = EPOLLIN | EPOLLET;
+                    ev.data.fd = client_socket;
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
+                        perror("Epoll_ctl failed for client socket");
+                        close(client_socket);
+                        continue;
+                    }
                 }
             } else {
                 int client_socket = events[i].data.fd;
                 char buffer[MESSAGE_SIZE];
                 
-                ssize_t bytes_read = read(client_socket, buffer, MESSAGE_SIZE);
-                if (bytes_read == -1) {
-                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        close(client_socket);
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                // Handle data from client - proper edge-triggered handling by reading until EAGAIN
+                while (1) {
+                    ssize_t bytes_read = read(client_socket, buffer, MESSAGE_SIZE);
+                    
+                    if (bytes_read == -1) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                            close(client_socket);
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                        }
+                        break;  // Either error or no more data
                     }
-                    continue;
-                }
-                
-                if (bytes_read == 0) {
-                    close(client_socket);
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
-                    continue;
-                }
-
-                if (bytes_read == MESSAGE_SIZE) {
-                    ssize_t bytes_sent = write(client_socket, buffer, MESSAGE_SIZE);
-                    if (bytes_sent == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                    
+                    if (bytes_read == 0) {
                         close(client_socket);
                         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                        break;  // Connection closed
+                    }
+
+                    // Echo back all the data read
+                    size_t bytes_to_write = bytes_read;
+                    size_t bytes_written = 0;
+                    while (bytes_written < bytes_to_write) {
+                        ssize_t result = write(client_socket, buffer + bytes_written, bytes_to_write - bytes_written);
+                        if (result == -1) {
+                            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                                close(client_socket);
+                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket, NULL);
+                                break;
+                            }
+                            // Would block, try again later
+                            break;
+                        }
+                        bytes_written += result;
                     }
                 }
             }
         }
     }
+    
 }
 
 int main(int argc, char *argv[]) {
