@@ -69,6 +69,7 @@ void SystemErrorMessage(const char *msg)
 /*
  * This function handles non-system errors.
  *
+./pa1_skeleton client 127.0.0.1 12345 4 1000000
 */
  void UserErrorMessage(const char *msg, const char *info)
 {
@@ -102,13 +103,13 @@ void *client_thread_func(void *arg) {
     // Hint 1: register the "connected" client_thread's socket in the its epoll instance
     // Hint 2: use gettimeofday() and "struct timeval start, end" to record timestamp, which can be used to calculated RTT.
 
-    data->socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if ( data->socket_fd < 0 )
-	    SystemErrorMessage("failed to create socket().");
+    //data->socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    //if ( data->socket_fd < 0 )
+	//   SystemErrorMessage("failed to create socket().");
 
     // Register socket with epoll instance.
-    if ( epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0 )
-	    SystemErrorMessage("epoll_ctl() failure.");
+    //if ( epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0 )
+	//    SystemErrorMessage("epoll_ctl() failure.");
 
     // Create address
     struct sockaddr_in s_addr;
@@ -132,47 +133,47 @@ void *client_thread_func(void *arg) {
 
     for (int i = 0; i < num_requests; i++)
     {
- 	// Get start time.
+ 	    // Get start time.
     	t_start = gettimeofday(&start, &t_zone);
 
-	// Connect to server.
-	if (connect(data->socket_fd, (struct sockaddr *) &s_addr, sizeof(s_addr) < 0))
-		SystemErrorMessage("connect() failed.");
+	    // Connect to server.
+	    //if (connect(data->socket_fd, (struct sockaddr *) &s_addr, sizeof(s_addr)) < 0)
+		//    SystemErrorMessage("connect() failed");
 
-	// Send to server.
-	bytes = send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
-	if (bytes < 0)
-		SystemErrorMessage("send() failed.");
-	else if (bytes != MESSAGE_SIZE)
-		UserErrorMessage("send()","incorrect number of bytes");
+	    // Send to server.
+	    bytes = send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
+	    if (bytes < 0)
+		    SystemErrorMessage("send() failed.");
+	    else if (bytes != MESSAGE_SIZE)
+		    UserErrorMessage("send()","incorrect number of bytes");
 
-	// Recieve from server.
-	while (bytes_rcvd < MESSAGE_SIZE)
-	{
-		// Use epoll to wait for return message.
-		epoll = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1); // TODO: may need to change timout from -1.
-		if (epoll < 0)
-			SystemErrorMessage("epoll_wait() failure");
-		// Read data from server.
-		bytes_rcvd = recv(data->socket_fd, recv_buf, MESSAGE_SIZE - 1, 0);
-		if (bytes_rcvd < 0)
-			SystemErrorMessage("recv() failure");
-		// Save the number of
-		bytes_rcvd += bytes_rcvd;
-	}
+	    // Recieve from server.
+	    while (bytes_rcvd < MESSAGE_SIZE)
+	    {
+		    // Use epoll to wait for return message.
+		    epoll = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1); // TODO: may need to change timout from -1.
+		    if (epoll < 0)
+			    SystemErrorMessage("epoll_wait() failure");
+		    // Read data from server.
+		    bytes_rcvd = recv(data->socket_fd, recv_buf, MESSAGE_SIZE - 1, 0);
+		    if (bytes_rcvd < 0)
+			    SystemErrorMessage("recv() failure");
+		    // Save the number of
+		    bytes_rcvd += bytes_rcvd;
+	    }
 
-	// Save end time.
-	t_end = gettimeofday(&end, &t_zone);
+	    // Save end time.
+	    t_end = gettimeofday(&end, &t_zone);
 
-	// Accumulate RTT.
-	data->total_rtt += (t_start - t_end);
-	// If whole message sent, increment total messages.
-	if (bytes_rcvd == MESSAGE_SIZE)
+	    // Accumulate RTT.
+	    data->total_rtt += (t_start - t_end);
+    	// If whole message sent, increment total messages.
+	    if (bytes_rcvd == MESSAGE_SIZE)
 		data->total_messages++;
-	// Reset counters.
-	epoll = 0;
-	bytes = 0;
-	bytes_rcvd = 0;
+    	// Reset counters.
+	    epoll = 0;
+	    bytes = 0;
+	    bytes_rcvd = 0;
     }
 
     // Calculate the request rate.
