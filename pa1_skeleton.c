@@ -265,6 +265,16 @@ void run_client()
         close(thread_data[i].epoll_fd);
     }
 
+        // Fix calculation of Total Request Rate
+    if (total_rtt > 0) 
+    {
+        total_request_rate = ((double)total_messages * 1000000L) / (double)total_rtt;
+    } 
+    else 
+    {
+        total_request_rate = 0.0;
+    }
+
     // Print average RTT and total request rate statistics
     if (total_messages > 0) 
     {
