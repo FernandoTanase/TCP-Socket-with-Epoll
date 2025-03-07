@@ -44,6 +44,8 @@ char *server_ip = "127.0.0.1";
 int server_port = 12345;
 int num_client_threads = DEFAULT_CLIENT_THREADS;
 int num_requests = 1000000;
+// Conversion factor from microsends to seconds.
+const long MICROSEC_TO_SEC = 1000000;
 
 /*
  * This structure is used to store per-thread data in the client
@@ -90,8 +92,6 @@ void *client_thread_func(void *arg) {
     char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
 
-    // Conversion factor from microsends to seconds.
-    const long MICROSEC_TO_SEC = 1000000;
     // Create timezone struct for use in gettimeofday();
     struct timezone t_zone;
     t_zone.tz_minuteswest = 0;
@@ -99,17 +99,6 @@ void *client_thread_func(void *arg) {
 
     int t_start = 0;
     int t_end = 0;
-
-    // Hint 1: register the "connected" client_thread's socket in the its epoll instance
-    // Hint 2: use gettimeofday() and "struct timeval start, end" to record timestamp, which can be used to calculated RTT.
-
-    //data->socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    //if ( data->socket_fd < 0 )
-	//   SystemErrorMessage("failed to create socket().");
-
-    // Register socket with epoll instance.
-    //if ( epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0 )
-	//    SystemErrorMessage("epoll_ctl() failure.");
 
     // Create address
     struct sockaddr_in s_addr;
@@ -136,10 +125,6 @@ void *client_thread_func(void *arg) {
  	    // Get start time.
     	t_start = gettimeofday(&start, NULL);
 
-	    // Connect to server.
-	    //if (connect(data->socket_fd, (struct sockaddr *) &s_addr, sizeof(s_addr)) < 0)
-		//    SystemErrorMessage("connect() failed");
-
 	    // Send to server.
 	    bytes = send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
 	    if (bytes < 0)
@@ -152,7 +137,7 @@ void *client_thread_func(void *arg) {
 	    while (bytes_rcvd < MESSAGE_SIZE)
 	    {
 		    // Use epoll to wait for return message.
-		    epoll = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1); // TODO: may need to change timout from -1.
+		    epoll = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1);
 		    if (epoll < 0)
 			    SystemErrorMessage("epoll_wait() failure");
 		    // Read data from server.
@@ -174,17 +159,9 @@ void *client_thread_func(void *arg) {
             data->total_rtt += rtt;
             data->total_messages++;
 
-        printf("Message %d RTT: %ld microseconds\n", i + 1, rtt);
     }
 
-    // Calculate the request rate.
-    // data->request_rate = ((data->total_messages * MICROSEC_TO_SEC) / data->total_rtt);
-
-    // Close socket and epoll file descriptors
-    // close(data->socket_fd);
-    // close(data->epoll_fd);
-
-    return NULL;
+       return NULL;
 }
 
 
@@ -210,35 +187,23 @@ void run_client()
 	// Create a TCP socket
         thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (thread_data[i].socket_fd < 0) 
-	{
-            perror("Socket creation failed");
-            exit(EXIT_FAILURE);
-        }
-
+	        SystemErrorMessage("Socket creation failed");
+        
         // Connect the socket to the server
         if (connect(thread_data[i].socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) 
-	{
-            perror("Connection to server failed");
-            exit(EXIT_FAILURE);
-        }
-
+	        SystemErrorMessage("Connection to server failed");
+        
         // Create an epoll instance for the thread
         thread_data[i].epoll_fd = epoll_create1(0);
         if (thread_data[i].epoll_fd < 0) 
-	{
-            perror("Epoll creation failed");
-            exit(EXIT_FAILURE);
-        }
-
+	        SystemErrorMessage("Epoll creation failed");
+      
         // Register the socket file descriptor with epoll for monitoring incoming data
         struct epoll_event event;
         event.events = EPOLLIN;
         event.data.fd = thread_data[i].socket_fd;
         if (epoll_ctl(thread_data[i].epoll_fd, EPOLL_CTL_ADD, thread_data[i].socket_fd, &event) < 0) 
-	{
-            perror("Epoll control failed");
-            exit(EXIT_FAILURE);
-        }
+	        SystemErrorMessage("Epoll control failed");
 
         // Initialize thread statistics
         thread_data[i].total_rtt = 0;
@@ -268,7 +233,7 @@ void run_client()
         // Fix calculation of Total Request Rate
     if (total_rtt > 0) 
     {
-        total_request_rate = ((double)total_messages * 1000000L) / (double)total_rtt;
+        total_request_rate = ((float)total_messages * MICROSEC_TO_SEC) / (float)total_rtt;
     } 
     else 
     {
@@ -289,16 +254,12 @@ void run_client()
 
 void run_server() {
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket == -1) {
-        perror("Server socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-
+    if (server_socket == -1) 
+        SystemErrorMessage("Server socket creation failed");
+ 
     int opt = 1;
-    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        perror("Setsockopt failed");
-        exit(EXIT_FAILURE);
-    }
+    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) 
+        SystemErrorMessage("Setsockopt failed");
 
     fcntl(server_socket, F_SETFL, O_NONBLOCK);
 
@@ -308,37 +269,27 @@ void run_server() {
     server_addr.sin_addr.s_addr = inet_addr(server_ip);
     server_addr.sin_port = htons(server_port);
 
-    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Bind failed");
-        exit(EXIT_FAILURE);
-    }
+    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) 
+        SystemErrorMessage("Bind failed");
 
-    if (listen(server_socket, SOMAXCONN) == -1) {
-        perror("Listen failed");
-        exit(EXIT_FAILURE);
-    }
+    if (listen(server_socket, SOMAXCONN) == -1) 
+        SystemErrorMessage("Listen failed");
 
     int epoll_fd = epoll_create1(0);
-    if (epoll_fd == -1) {
-        perror("Epoll create failed");
-        exit(EXIT_FAILURE);
-    }
+    if (epoll_fd == -1) 
+        SystemErrorMessage("Epoll create failed");
 
     struct epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.fd = server_socket;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &ev) == -1) {
-        perror("Epoll_ctl failed");
-        exit(EXIT_FAILURE);
-    }
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &ev) == -1) 
+        SystemErrorMessage("Epoll_ctl failed");
 
     struct epoll_event events[MAX_EVENTS];
     while (1) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
-        if (nfds == -1) {
-            perror("Epoll wait failed");
-            exit(EXIT_FAILURE);
-        }
+        if (nfds == -1) 
+            SystemErrorMessage("Epoll wait failed");
 
         for (int i = 0; i < nfds; i++) {
             if (events[i].data.fd == server_socket) {
