@@ -91,7 +91,7 @@ void *client_thread_func(void *arg) {
     struct timeval start, end;
 
     // Conversion factor from microsends to seconds.
-    const int MICROSEC_TO_SEC = 1000000;
+    const long MICROSEC_TO_SEC = 1000000;
     // Create timezone struct for use in gettimeofday();
     struct timezone t_zone;
     t_zone.tz_minuteswest = 0;
@@ -134,7 +134,7 @@ void *client_thread_func(void *arg) {
     for (int i = 0; i < num_requests; i++)
     {
  	    // Get start time.
-    	t_start = gettimeofday(&start, &t_zone);
+    	t_start = gettimeofday(&start, NULL);
 
 	    // Connect to server.
 	    //if (connect(data->socket_fd, (struct sockaddr *) &s_addr, sizeof(s_addr)) < 0)
@@ -148,6 +148,7 @@ void *client_thread_func(void *arg) {
 		    UserErrorMessage("send()","incorrect number of bytes");
 
 	    // Recieve from server.
+	    int bytes_rcvd = 0;
 	    while (bytes_rcvd < MESSAGE_SIZE)
 	    {
 		    // Use epoll to wait for return message.
@@ -155,29 +156,29 @@ void *client_thread_func(void *arg) {
 		    if (epoll < 0)
 			    SystemErrorMessage("epoll_wait() failure");
 		    // Read data from server.
-		    bytes_rcvd = recv(data->socket_fd, recv_buf, MESSAGE_SIZE - 1, 0);
+		    ssize_t recv_rcvd = recv(data->socket_fd, recv_buf + bytes_rcvd, MESSAGE_SIZE - bytes_rcvd, 0);
 		    if (bytes_rcvd < 0)
 			    SystemErrorMessage("recv() failure");
 		    // Save the number of
-		    bytes_rcvd += bytes_rcvd;
+		    bytes_rcvd += recv_rcvd;
 	    }
 
 	    // Save end time.
-	    t_end = gettimeofday(&end, &t_zone);
+	    t_end = gettimeofday(&end, NULL);
 
 	    // Accumulate RTT.
-	    data->total_rtt += (t_start - t_end);
-    	// If whole message sent, increment total messages.
-	    if (bytes_rcvd == MESSAGE_SIZE)
-		data->total_messages++;
-    	// Reset counters.
-	    epoll = 0;
-	    bytes = 0;
-	    bytes_rcvd = 0;
+	    long rtt = ((end.tv_sec - start.tv_sec) * MICROSEC_TO_SEC) + (end.tv_usec - start.tv_usec);
+            if (rtt < 0) rtt = 0; // Ensure RTT is not negative
+
+            // Update total RTT
+            data->total_rtt += rtt;
+            data->total_messages++;
+
+        printf("Message %d RTT: %ld microseconds\n", i + 1, rtt);
     }
 
     // Calculate the request rate.
-    data->request_rate = ((data->total_messages * MICROSEC_TO_SEC) / data->total_rtt);
+    // data->request_rate = ((data->total_messages * MICROSEC_TO_SEC) / data->total_rtt);
 
     // Close socket and epoll file descriptors
     // close(data->socket_fd);
